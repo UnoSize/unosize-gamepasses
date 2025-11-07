@@ -3,22 +3,13 @@ const fetch = require('node-fetch');
 const cors = require('cors');
 
 const app = express();
-// Render assigns a dynamic port, so we use process.env.PORT
 const PORT = process.env.PORT || 3000; 
 
-// Securely retrieve the Open Cloud API Key from Render's environment variables
 const ROBLOX_API_KEY = process.env.ROBLOX_API_KEY;
 
-// 1. Setup Middleware
-app.use(cors());
+app.use(cors()); // Allows cross-origin requests
 app.use(express.json());
 
-// --- ENDPOINT 1: Check Single GamePass Ownership ---
-// (Uses the reliable 'inventory.roblox.com' public endpoint - No API Key needed)
-
-/**
- * Usage: GET /api/v1/check-ownership?userId={USER_ID}&gamePassId={GAMEPASS_ID}
- */
 app.get('/api/v1/check-ownership', async (req, res) => {
     const { userId, gamePassId } = req.query;
 
@@ -30,7 +21,6 @@ app.get('/api/v1/check-ownership', async (req, res) => {
     }
 
     const assetType = 'GamePass';
-    // This is the current, reliable public endpoint for ownership
     const apiUrl = `https://inventory.roblox.com/v1/users/${userId}/items/${assetType}/${gamePassId}/is-owned`;
 
     try {
@@ -64,12 +54,6 @@ app.get('/api/v1/check-ownership', async (req, res) => {
     }
 });
 
-// --- ENDPOINT 2: List All GamePasses for a Universe ---
-// (Uses the new, non-deprecated 'apis.roblox.com' endpoint - REQUIRES API KEY)
-
-/**
- * Usage: GET /api/v1/list-gamepasses?universeId={UNIVERSE_ID}&passView={Optional: Full}
- */
 app.get('/api/v1/list-gamepasses', async (req, res) => {
     const { universeId, passView, pageSize, pageToken } = req.query;
 
@@ -81,7 +65,7 @@ app.get('/api/v1/list-gamepasses', async (req, res) => {
     }
 
     if (!ROBLOX_API_KEY) {
-        // Fail fast if the required security key is missing
+        // Critical check for the required environment variable
         return res.status(500).json({
             success: false,
             message: 'Server Error: ROBLOX_API_KEY environment variable is not set. This endpoint requires an authenticated Open Cloud API Key.',
@@ -95,14 +79,12 @@ app.get('/api/v1/list-gamepasses', async (req, res) => {
     if (pageSize) params.append('pageSize', pageSize);
     if (pageToken) params.append('pageToken', pageToken);
 
-    // Use the NEW official endpoint as provided by the DevForum update
     const apiUrl = `https://apis.roblox.com/game-passes/v1/universes/${universeId}/game-passes?${params.toString()}`;
 
     try {
         const response = await fetch(apiUrl, {
             method: 'GET',
             headers: {
-                // Attach the Open Cloud API Key for authentication
                 'x-api-key': ROBLOX_API_KEY, 
                 'Content-Type': 'application/json'
             }
@@ -118,7 +100,6 @@ app.get('/api/v1/list-gamepasses', async (req, res) => {
             });
         }
         
-        // Return the full JSON response from the Roblox API
         const data = await response.json();
         res.json({
             success: true,
@@ -137,7 +118,6 @@ app.get('/api/v1/list-gamepasses', async (req, res) => {
 });
 
 
-// 3. Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
