@@ -4,14 +4,27 @@
   "description": "A custom API to check and list Roblox Gamepass data using current, non-deprecated endpoints.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
     "node-fetch": "^2.6.7",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "express-rate-limit": "^6.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22"
   },
   "engines": {
     "node": ">=14.0.0"
-  }
+  },
+  "keywords": [
+    "roblox",
+    "gamepass",
+    "api",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC"
 }
