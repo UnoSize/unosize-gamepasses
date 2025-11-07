@@ -1,17 +1,14 @@
 {
-  "name": "roblox-gamepass-checker",
+  "name": "roblox-gamepass-api",
   "version": "1.0.0",
-  "description": "A custom API to check Roblox Gamepass ownership.",
+  "description": "Custom API to fetch Roblox player gamepasses",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "node-fetch": "^2.6.7",
-    "cors": "^2.8.5"
-  },
-  "engines": {
-    "node": ">=14.0.0"
+    "axios": "^1.6.8",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
   }
 }
