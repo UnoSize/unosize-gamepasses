@@ -1,115 +1,143 @@
-// ✅ Load environment variables first
-require("dotenv").config();
+const express = require('express');
+const fetch = require('node-fetch');
+const cors = require('cors');
 
-const express = require("express");
-const axios = require("axios");
 const app = express();
+// Render assigns a dynamic port, so we use process.env.PORT
+const PORT = process.env.PORT || 3000; 
 
-const PORT = process.env.PORT || 3000;
+// Securely retrieve the Open Cloud API Key from Render's environment variables
 const ROBLOX_API_KEY = process.env.ROBLOX_API_KEY;
 
-if (!ROBLOX_API_KEY) {
-  console.warn("⚠️ Warning: ROBLOX_API_KEY is not set. Some Cloud endpoints will fail.");
-}
+// 1. Setup Middleware
+app.use(cors());
+app.use(express.json());
 
-// 🔧 Default request headers for Roblox Cloud API
-function cloudRequestOptions() {
-  return {
-    headers: {
-      "x-api-key": ROBLOX_API_KEY,
-      "User-Agent": "MyRobloxGamepassFetcher/1.0"
-    },
-    timeout: 10000
-  };
-}
+// --- ENDPOINT 1: Check Single GamePass Ownership ---
+// (Uses the reliable 'inventory.roblox.com' public endpoint - No API Key needed)
 
-// 🏠 Home route (health check)
-app.get("/", (req, res) => {
-  res.json({
-    ok: true,
-    message: "✅ Roblox Gamepass API is running. Use /api/created-gamepasses/:userId or /api/owns/:userId/:gamePassId"
-  });
+/**
+ * Usage: GET /api/v1/check-ownership?userId={USER_ID}&gamePassId={GAMEPASS_ID}
+ */
+app.get('/api/v1/check-ownership', async (req, res) => {
+    const { userId, gamePassId } = req.query;
+
+    if (!userId || !gamePassId) {
+        return res.status(400).json({
+            success: false,
+            message: 'Missing required parameters: userId and gamePassId.'
+        });
+    }
+
+    const assetType = 'GamePass';
+    // This is the current, reliable public endpoint for ownership
+    const apiUrl = `https://inventory.roblox.com/v1/users/${userId}/items/${assetType}/${gamePassId}/is-owned`;
+
+    try {
+        const response = await fetch(apiUrl);
+        
+        if (!response.ok) {
+            return res.status(response.status).json({
+                success: false,
+                message: 'Failed to check ownership via Roblox API.',
+                robloxStatusCode: response.status
+            });
+        }
+        
+        const isOwnedText = await response.text();
+        const isOwned = isOwnedText.toLowerCase() === 'true';
+
+        res.json({
+            success: true,
+            method: 'check-ownership',
+            userId: parseInt(userId, 10),
+            gamePassId: parseInt(gamePassId, 10),
+            isOwned: isOwned,
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error while processing ownership check.',
+            error: error.message
+        });
+    }
 });
 
-// 🎮 Fetch all gamepasses created by a specific user
-app.get("/api/created-gamepasses/:userId", async (req, res) => {
-  try {
-    const userId = req.params.userId;
-    if (!/^\d+$/.test(userId)) return res.status(400).json({ error: "userId must be numeric" });
+// --- ENDPOINT 2: List All GamePasses for a Universe ---
+// (Uses the new, non-deprecated 'apis.roblox.com' endpoint - REQUIRES API KEY)
 
-    const results = [];
-    let exclusiveStartId = "";
-    const pageLimit = 100;
-    const safetyPages = 50;
-    let pages = 0;
-    const base = "https://apis.roblox.com";
+/**
+ * Usage: GET /api/v1/list-gamepasses?universeId={UNIVERSE_ID}&passView={Optional: Full}
+ */
+app.get('/api/v1/list-gamepasses', async (req, res) => {
+    const { universeId, passView, pageSize, pageToken } = req.query;
 
-    while (pages < safetyPages) {
-      const url = `${base}/game-passes/v1/users/${userId}/game-passes?count=${pageLimit}${
-        exclusiveStartId ? `&exclusiveStartId=${exclusiveStartId}` : ""
-      }`;
-
-      const resp = await axios.get(url, cloudRequestOptions());
-      const body = resp.data;
-
-      // Flexible handling for Roblox’s JSON responses
-      if (Array.isArray(body.data)) results.push(...body.data);
-      else if (Array.isArray(body.gamePasses)) results.push(...body.gamePasses);
-      else if (Array.isArray(body.items)) results.push(...body.items);
-
-      const nextId =
-        body.nextExclusiveStartId ||
-        body.nextCursor ||
-        (body.meta && body.meta.nextExclusiveStartId);
-
-      if (!nextId) break;
-      exclusiveStartId = nextId;
-      pages++;
+    if (!universeId) {
+        return res.status(400).json({
+            success: false,
+            message: 'Missing required parameter: universeId.'
+        });
     }
 
-    res.json({ ok: true, count: results.length, results });
-  } catch (err) {
-    console.error("❌ Error:", err?.response?.data || err.message || err);
-    res
-      .status(err?.response?.status || 500)
-      .json({ ok: false, error: err?.response?.data || err.message });
-  }
+    if (!ROBLOX_API_KEY) {
+        // Fail fast if the required security key is missing
+        return res.status(500).json({
+            success: false,
+            message: 'Server Error: ROBLOX_API_KEY environment variable is not set. This endpoint requires an authenticated Open Cloud API Key.',
+            guide: 'Please generate a key on the Creator Dashboard with Game Pass read permissions and set it on Render.'
+        });
+    }
+    
+    // Build the query string for the new Roblox API
+    const params = new URLSearchParams();
+    if (passView) params.append('passView', passView);
+    if (pageSize) params.append('pageSize', pageSize);
+    if (pageToken) params.append('pageToken', pageToken);
+
+    // Use the NEW official endpoint as provided by the DevForum update
+    const apiUrl = `https://apis.roblox.com/game-passes/v1/universes/${universeId}/game-passes?${params.toString()}`;
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+                // Attach the Open Cloud API Key for authentication
+                'x-api-key': ROBLOX_API_KEY, 
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            return res.status(response.status).json({
+                success: false,
+                message: 'Failed to retrieve game passes from Roblox API. Check API Key permissions or Universe ID.',
+                robloxStatusCode: response.status,
+                robloxError: errorText
+            });
+        }
+        
+        // Return the full JSON response from the Roblox API
+        const data = await response.json();
+        res.json({
+            success: true,
+            method: 'list-gamepasses',
+            universeId: parseInt(universeId, 10),
+            data: data
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error while processing the game pass list request.',
+            error: error.message
+        });
+    }
 });
 
-// 👤 Check if a player owns a gamepass
-app.get("/api/owns/:userId/:gamePassId", async (req, res) => {
-  try {
-    const { userId, gamePassId } = req.params;
-    if (!/^\d+$/.test(userId) || !/^\d+$/.test(gamePassId)) {
-      return res.status(400).json({ error: "userId and gamePassId must be numeric" });
-    }
 
-    const inventoryUrl = `https://inventory.roblox.com/v1/users/${userId}/items/GamePass/${gamePassId}`;
-    const resp = await axios.get(inventoryUrl, {
-      timeout: 10000,
-      headers: { "User-Agent": "MyRobloxGamepassFetcher/1.0" }
-    });
-
-    const body = resp.data;
-
-    if (body && Array.isArray(body.data)) {
-      return res.json({ ok: true, owns: body.data.length > 0, raw: body });
-    }
-
-    if (body && (body.totalCount || body.total || body.count)) {
-      const count = body.totalCount || body.total || body.count;
-      return res.json({ ok: true, owns: count > 0, count, raw: body });
-    }
-
-    res.json({ ok: false, owns: "unknown", raw: body });
-  } catch (err) {
-    console.error("❌ Error:", err?.response?.data || err.message || err);
-    if (err?.response?.status === 404) return res.json({ ok: true, owns: false });
-    res
-      .status(err?.response?.status || 500)
-      .json({ ok: false, error: err?.response?.data || err.message });
-  }
+// 3. Start the server
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 });
-
-// 🚀 Start server
-app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
